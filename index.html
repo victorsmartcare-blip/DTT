@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Treino (DTT) — Enviar PDF para Google Drive</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    body { margin: 0; padding: 24px; background: #0b0b0c; color: #eaeaea; }
+    h1 { margin: 0 0 16px; font-size: 20px; }
+    .app { display: grid; gap: 16px; grid-template-columns: 360px 1fr; align-items: start; }
+    .card { background: #111214; border: 1px solid #1e1f24; border-radius: 14px; padding: 16px; }
+    label { display: block; font-size: 12px; opacity: .8; margin-bottom: 6px; }
+    input, select, button, textarea { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #2a2c33; background: #0f1012; color: #eaeaea; padding: 10px 12px; }
+    input:focus, textarea:focus { outline: 2px solid #4c8dff50; border-color: #4c8dff80; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .actions { display: flex; gap: 10px; }
+    button { cursor: pointer; font-weight: 600; }
+    .primary { background: #4c8dff; border-color: #4c8dff; color: #0b0b0c; }
+    .muted { background: #191b20; }
+    .status { font-size: 12px; padding: 10px; border-radius: 10px; background: #191b20; border: 1px solid #2a2c33; white-space: pre-wrap; }
+    iframe { width: 100%; height: 80vh; background: #17181c; border: 1px solid #1e1f24; border-radius: 14px; }
+    .hint { font-size: 12px; opacity: .75; }
+    @media (max-width: 900px) { .app { grid-template-columns: 1fr; } iframe { height: 70vh; } }
+  </style>
+</head>
+<body>
+  <h1>Treino (DTT) → Enviar PDF para o Google Drive</h1>
+  <div class="app">
+
+    <section class="card">
+      <div class="row">
+        <div>
+          <label>Paciente</label>
+          <input id="paciente" placeholder="Nome do paciente" />
+        </div>
+        <div>
+          <label>Terapeuta</label>
+          <input id="terapeuta" placeholder="Nome do terapeuta" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>Treino</label>
+          <input id="treino" placeholder="Nome do treino" />
+        </div>
+        <div>
+          <label>Data</label>
+          <input id="data" type="date" />
+        </div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <label>Estímulo</label>
+        <input id="estimulo" placeholder="Ex.: cores, formas, etc." />
+      </div>
+
+      <hr style="border-color:#1e1f24; margin:16px 0;">
+
+      <div>
+        <label>URL do endpoint (Apps Script)</label>
+        <input id="endpoint" placeholder="Cole aqui a URL do seu Web App (https://script.google.com/macros/s/..../exec)" />
+        <p class="hint">Dica: publique seu Apps Script como Web App (Acesso: Qualquer pessoa com o link). A URL termina em <code>/exec</code>.</p>
+      </div>
+
+      <div style="margin-top:10px;">
+        <label>Nome do arquivo (opcional)</label>
+        <input id="filename" placeholder="Ex.: DTT_Paciente_Data.pdf (será gerado automaticamente se vazio)" />
+      </div>
+
+      <div class="actions" style="margin-top:16px;">
+        <button class="primary" id="btnEnviar">Enviar DTT.pdf para o Drive</button>
+        <button class="muted" id="btnTestar">Testar endpoint</button>
+      </div>
+
+      <div id="status" class="status" style="margin-top:12px;">Pronto.</div>
+      <p class="hint">Garanta que o arquivo <strong>DTT.pdf</strong> esteja na mesma pasta deste <code>index.html</code>.</p>
+    </section>
+
+    <section class="card">
+      <label>Prévia do PDF</label>
+      <iframe src="DTT.pdf" title="Prévia do DTT.pdf"></iframe>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function todayISO() {
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    }
+
+    async function fileToBase64(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Falha ao abrir ${url}: ${res.status} ${res.statusText}`);
+      const blob = await res.blob();
+      const arrBuffer = await blob.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(arrBuffer);
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        const sub = bytes.subarray(i, i + chunk);
+        binary += String.fromCharCode.apply(null, sub);
+      }
+      return btoa(binary);
+    }
+
+    function buildFilename() {
+      const fn = $('filename').value.trim();
+      if (fn) return fn.endsWith('.pdf') ? fn : `${fn}.pdf`;
+      const paciente = $('paciente').value.trim() || 'Paciente';
+      const treino = $('treino').value.trim() || 'DTT';
+      const data = $('data').value || todayISO();
+      return `${treino}_${paciente}_${data}.pdf`.replace(/\s+/g, '_');
+    }
+
+    async function enviar() {
+      const endpoint = $('endpoint').value.trim();
+      if (!endpoint) return setStatus('Informe a URL do endpoint do Apps Script.');
+      setStatus('Lendo DTT.pdf…');
+      try {
+        const base64 = await fileToBase64('DTT.pdf');
+        const payload = {
+          filename: buildFilename(),
+          base64,
+          meta: {
+            paciente: $('paciente').value.trim(),
+            terapeuta: $('terapeuta').value.trim(),
+            treino: $('treino').value.trim(),
+            data: $('data').value,
+            estimulo: $('estimulo').value.trim(),
+            origem: 'App DTT — Envio PDF'
+          }
+        };
+        setStatus('Enviando para o Drive…');
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const txt = await res.text();
+        let data;
+        try { data = JSON.parse(txt); } catch (_) { data = { raw: txt }; }
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${JSON.stringify(data)}`);
+        setStatus(`✅ Enviado! Resposta do servidor:\n${JSON.stringify(data, null, 2)}`);
+      } catch (err) {
+        setStatus('❌ Erro: ' + (err?.message || err));
+      }
+    }
+
+    async function testar() {
+      const endpoint = $('endpoint').value.trim();
+      if (!endpoint) return setStatus('Informe a URL do endpoint do Apps Script.');
+      setStatus('Enviando teste (Hello)…');
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hello: true })
+        });
+        const txt = await res.text();
+        let data;
+        try { data = JSON.parse(txt); } catch (_) { data = { raw: txt }; }
+        setStatus(`Resposta do endpoint:\n${JSON.stringify(data, null, 2)}`);
+      } catch (err) {
+        setStatus('❌ Erro: ' + (err?.message || err));
+      }
+    }
+
+    function setStatus(msg) { $('status').textContent = msg; }
+
+    $('btnEnviar').addEventListener('click', enviar);
+    $('btnTestar').addEventListener('click', testar);
+  </script>
+</body>
+</html>
